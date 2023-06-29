@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "msg2fastdds"
+version = "0.0.1"
+authors = [
+  {name = "Rin Iwai", email = "rin@eyrin.jp"},
+]
+description = "msg2fastdds"
+readme = "README.md"
+dependencies = [
+  "catkin-pkg",
+  "empy",
+  "PyYAML",
+]
+
+[project.scripts]
+msg2fastdds = "msg2fastdds:main"
