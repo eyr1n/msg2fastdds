@@ -16,11 +16,11 @@
 
 import argparse
 import os
-import pathlib
 import shutil
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 
 from catkin_pkg.package import parse_package
 
@@ -31,38 +31,42 @@ from rosidl_adapter.msg import convert_msg_to_idl
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("package_dir")
-    parser.add_argument("output_dir")
+    parser.add_argument("package_dirs", nargs="*")
+    parser.add_argument("-o", "--outdir", required=True)
     args = parser.parse_args(sys.argv[1:])
 
-    package_dir = pathlib.Path(args.package_dir).absolute()
-    interface_files = package_dir.glob("**/*.msg")
-    pkg = parse_package(package_dir)
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        tmp_idl = tmp / "idl"
+        tmp_cxx = tmp / "cxx"
 
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        tmp_dir = pathlib.Path(tmp_dir) / pathlib.Path(pkg.name)
+        for pkg_dir in args.package_dirs:
+            pkg_dir = Path(pkg_dir).absolute()
+            pkg = parse_package(pkg_dir)
+            for msg in pkg_dir.glob("**/*.msg"):
+                convert_msg_to_idl(
+                    pkg_dir,
+                    pkg.name,
+                    msg.relative_to(pkg_dir),
+                    tmp_idl / pkg.name / msg.parent.relative_to(pkg_dir),
+                )
 
-        for interface_file in interface_files:
-            convert_msg_to_idl(
-                package_dir,
-                pkg.name,
-                interface_file.relative_to(package_dir),
-                tmp_dir,
+        for idl in tmp_idl.glob("**/*.idl"):
+            dest = tmp_cxx / idl.parent.relative_to(tmp_idl)
+            dest.mkdir(parents=True, exist_ok=True)
+            subprocess.run(
+                [
+                    "fastddsgen",
+                    "-typeros2",
+                    "-cs",
+                    "-I",
+                    tmp_idl,
+                    "-d",
+                    dest,
+                    idl,
+                ],
             )
 
-        subprocess.run(
-            [
-                "fastddsgen",
-                "-ppDisable",
-                "-typeros2",
-                "-d",
-                tmp_dir,
-                *tmp_dir.glob("*.idl"),
-            ]
-        )
-
-        generated = filter(lambda x: x.suffix in [".cxx", ".h"], tmp_dir.iterdir())
-        output_dir = pathlib.Path(args.output_dir) / pathlib.Path(pkg.name)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        for file in generated:
-            shutil.copy2(file, output_dir)
+        out_dir = Path(args.outdir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(tmp_cxx, out_dir, dirs_exist_ok=True)
